@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ====================== V9.9.9 FINAL - 24/7 QWEN2.5 BOSS - DEMO ======================
-IS_LIVE = False # ← FALSE = DEMO. True = REAL MONEY. Mag-ingat.
+IS_LIVE = True # ← FALSE = DEMO. True = REAL MONEY. Mag-ingat.
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
