@@ -3,18 +3,18 @@ from datetime import date
 from dotenv import load_dotenv
 load_dotenv()
 
-# ====================== V10.0.1 FINAL - 24/7 AI BOSS - DEMO ======================
-IS_LIVE = False # FALSE = DEMO. TRUE = REAL MONEY. 
+# ====================== V10.0.3 FINAL - BINANCE DEMO TRADING ======================
+IS_LIVE = False # FALSE = DEMO. TRUE = REAL MONEY. DANGER!
 
 # ====================== KEYS ======================
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 GROQ_KEY_1 = os.getenv('GROQ_KEY_1')
-GROQ_KEY_2 = os.getenv('GROQ_KEY_2') 
+GROQ_KEY_2 = os.getenv('GROQ_KEY_2')
 DEEPSEEK_KEY = os.getenv('DEEPSEEK_KEY')
 GEMINI_KEY = os.getenv('GEMINI_KEY')
-BINANCE_API = os.getenv('BINANCE_API')
-BINANCE_SECRET = os.getenv('BINANCE_SECRET')
+BINANCE_API = os.getenv('BINANCE_API') # Gamitin mo DEMO API KEY dito boss
+BINANCE_SECRET = os.getenv('BINANCE_SECRET') # Galing sa demo.binance.com
 
 CAPITAL = 1000.0
 BASE_TRADE_SIZE = 200
@@ -22,14 +22,14 @@ SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT']
 MIN_CONFIDENCE = 78
 
 MODELS = {
-    "BOSS":   ["groq", "qwen2.5-72b", GROQ_KEY_1],
+    "BOSS": ["groq", "qwen2.5-72b", GROQ_KEY_1],
     "SCANNER":["groq", "llama-3.1-8b-instant", GROQ_KEY_2],
     "HUNTER": ["deepseek", "deepseek-chat", DEEPSEEK_KEY],
-    "ELDER":  ["gemini", "gemini-1.5-flash-latest", GEMINI_KEY]
+    "ELDER": ["gemini", "gemini-1.5-flash-latest", GEMINI_KEY]
 }
 
 PROMPTS = {
-    "BOSS": """You are an elite 24/7 crypto trader. Analyze {symbol} 30m chart. 
+    "BOSS": """You are an elite 24/7 crypto trader. Analyze {symbol} 30m chart.
     Price > EMA200 and EMA50 > EMA200 = BUY. Return ONLY JSON: {{"vote":"BUY","confidence":85}}""",
     "SCANNER": "Pick 1 best long: {symbols}. Return ONLY: {{\"pick\":\"BTC/USDT\"}}",
     "HUNTER": "Valid long on {symbol}? Return ONLY: {{\"valid\":true}}",
@@ -38,13 +38,15 @@ PROMPTS = {
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(message)s', handlers=[logging.StreamHandler()])
 
-# DEMO TRADING NA TO BOSS. Walang real money.
-exchange = ccxt.binancedm({
+# ========= ITO NA YUNG BAGO BOSS =========
+# ccxt v4.5.6+ = enable_demo_trading(True)【7745167443875226477†L96-L98】
+exchange = ccxt.binanceusdm({
     'apiKey': BINANCE_API,
     'secret': BINANCE_SECRET,
     'options': {'defaultType': 'future'},
     'enableRateLimit': True
 })
+exchange.enable_demo_trading(True) # <--- BINANCE DEMO MODE. FAKE MONEY LANG
 
 def save_chart(df, symbol):
     df = df.copy()
@@ -86,7 +88,7 @@ def ask_ai(bot_name, prompt, image_path=None):
         logging.error(f"{bot_name} failed: {e}")
         return {}
 
-logging.info(f"🤖 V10.0.1 FINAL | AI BOSS TEAM | DEMO MODE | Live: {IS_LIVE}")
+logging.info(f"🤖 V10.0.3 FINAL | AI BOSS TEAM | DEMO TRADING MODE | Live: {IS_LIVE}")
 
 while True:
     try:
