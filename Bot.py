@@ -1,52 +1,75 @@
+cat > Bot.py << 'EOF'
 import ccxt, time, requests, json, os, pandas as pd, mplfinance as mpf, logging
-from datetime import date
+from datetime import datetime, date
 from dotenv import load_dotenv
 load_dotenv()
 
-# ====================== V10.0.3 FINAL - BINANCE DEMO TRADING ======================
-IS_LIVE = False # FALSE = DEMO. TRUE = REAL MONEY. DANGER!
+# ====================== V9.9.8 FINAL - BINANCE DEMO ======================
+IS_LIVE = False  # ← FALSE = DEMO. TRUE = REAL MONEY. DANGER!
 
-# ====================== KEYS ======================
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 GROQ_KEY_1 = os.getenv('GROQ_KEY_1')
-GROQ_KEY_2 = os.getenv('GROQ_KEY_2')
+GROQ_KEY_2 = os.getenv('GROQ_KEY_2') 
 DEEPSEEK_KEY = os.getenv('DEEPSEEK_KEY')
 GEMINI_KEY = os.getenv('GEMINI_KEY')
-BINANCE_API = os.getenv('BINANCE_API') # Gamitin mo DEMO API KEY dito boss
-BINANCE_SECRET = os.getenv('BINANCE_SECRET') # Galing sa demo.binance.com
+BINANCE_API = os.getenv('BINANCE_API')
+BINANCE_SECRET = os.getenv('BINANCE_SECRET')
 
 CAPITAL = 1000.0
 BASE_TRADE_SIZE = 200
-SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT']
+SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'TON/USDT', 'ADA/USDT']
 MIN_CONFIDENCE = 78
+MAX_OPEN = 4
+SL_PCT = 0.05
+TP1_PCT = 0.10
+TP2_PCT = 0.15
+HARD_STOP_PCT = 0.07
 
 MODELS = {
-    "BOSS": ["groq", "qwen2.5-72b", GROQ_KEY_1],
+    "BOSS":   ["groq", "qwen2.5-72b", GROQ_KEY_1],
     "SCANNER":["groq", "llama-3.1-8b-instant", GROQ_KEY_2],
     "HUNTER": ["deepseek", "deepseek-chat", DEEPSEEK_KEY],
-    "ELDER": ["gemini", "gemini-1.5-flash-latest", GEMINI_KEY]
+    "ELDER":  ["gemini", "gemini-1.5-flash-latest", GEMINI_KEY]
 }
 
 PROMPTS = {
-    "BOSS": """You are an elite 24/7 crypto trader. Analyze {symbol} 30m chart.
-    Price > EMA200 and EMA50 > EMA200 = BUY. Return ONLY JSON: {{"vote":"BUY","confidence":85}}""",
-    "SCANNER": "Pick 1 best long: {symbols}. Return ONLY: {{\"pick\":\"BTC/USDT\"}}",
-    "HUNTER": "Valid long on {symbol}? Return ONLY: {{\"valid\":true}}",
+    "BOSS": """You are an elite 24/7 crypto trader. Analyze this 30m chart of {symbol}. 
+Rules: Price > EMA200, EMA50 > EMA200. Return ONLY JSON: {{"vote":"BUY","confidence":85,"reason":"short"}}""",
+    "SCANNER": "Pick the SINGLE strongest long: {symbols}. Return ONLY: {{\"pick\":\"BTC/USDT\"}}",
+    "HUNTER": "Valid long on {symbol} 30m? Return ONLY: {{\"valid\":true}}",
     "ELDER": "Safe to LONG {symbol}? Return ONLY: {{\"approve\":true}}"
 }
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(message)s', handlers=[logging.StreamHandler()])
+logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(message)s',
+                    handlers=[logging.FileHandler("bot_v9.9.8_final.log"), logging.StreamHandler()])
 
-# ========= ITO NA YUNG BAGO BOSS =========
-# ccxt v4.5.6+ = enable_demo_trading(True)【7745167443875226477†L96-L98】
+# ========= FIX 1: DEMO MODE FOR FUTURES =========
 exchange = ccxt.binanceusdm({
     'apiKey': BINANCE_API,
     'secret': BINANCE_SECRET,
     'options': {'defaultType': 'future'},
     'enableRateLimit': True
 })
-exchange.enable_demo_trading(True) # <--- BINANCE DEMO MODE. FAKE MONEY LANG
+exchange.enable_demo_trading(not IS_LIVE) # <--- ITO DAPAT SA FUTURES BOSS
+
+active_trades = {}
+
+def tg(msg: str, photo=None):
+    try:
+        if photo and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
+            if photo and os.path.exists(photo):
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto",
+                              data={'chat_id': TELEGRAM_CHAT_ID, 'caption': msg},
+                              files={'photo': open(photo, 'rb')}, timeout=10)
+            else:
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                              data={'chat_id': TELEGRAM_CHAT_ID, 'text': msg}, timeout=10)
+    except Exception as e: 
+        logging.error(f"TG Error: {e}")
+
+def get_leverage(symbol):
+    return 15 if "BTC" in symbol else 10
 
 def save_chart(df, symbol):
     df = df.copy()
@@ -56,7 +79,8 @@ def save_chart(df, symbol):
     df.columns = ['Open','High','Low','Close','Volume']
     apds = [mpf.make_addplot(df['Close'].ewm(span=50).mean(), color='blue'),
             mpf.make_addplot(df['Close'].ewm(span=200).mean(), color='orange')]
-    mpf.plot(df[-100:], type='candle', style='yahoo', addplot=apds, title=f'{symbol} 30m', savefig='chart.png', volume=True)
+    mpf.plot(df[-100:], type='candle', style='yahoo', addplot=apds,
+             title=f'{symbol} 30m', savefig='chart.png', volume=True)
     return 'chart.png'
 
 def safe_json_parse(text):
@@ -66,7 +90,9 @@ def safe_json_parse(text):
 
 def ask_ai(bot_name, prompt, image_path=None):
     provider, model, key = MODELS[bot_name]
-    if not key: return {}
+    if not key: 
+        logging.error(f"{bot_name} Key missing")
+        return {}
     try:
         if provider == "groq":
             url = "https://api.groq.com/openai/v1/chat/completions"
@@ -88,17 +114,20 @@ def ask_ai(bot_name, prompt, image_path=None):
         logging.error(f"{bot_name} failed: {e}")
         return {}
 
-logging.info(f"🤖 V10.0.3 FINAL | AI BOSS TEAM | DEMO TRADING MODE | Live: {IS_LIVE}")
+logging.info(f"🤖 V9.9.8 FINAL | AI BOSS TEAM | DEMO TRADING MODE | Live: {IS_LIVE}")
 
 while True:
     try:
         balance = exchange.fetch_balance()['USDT']['free']
-        if balance < BASE_TRADE_SIZE:
+        open_positions = [p for p in exchange.fetch_positions() if float(p.get('contracts', 0)) > 0]
+
+        if balance < BASE_TRADE_SIZE or len(open_positions) >= MAX_OPEN:
+            logging.info(f"WAIT | Balance: {balance} | Open: {len(open_positions)}/{MAX_OPEN}")
             time.sleep(40)
             continue
 
         pick = ask_ai("SCANNER", PROMPTS["SCANNER"].format(symbols=SYMBOLS)).get('pick')
-        if not pick:
+        if not pick or pick in active_trades:
             time.sleep(45)
             continue
 
@@ -114,11 +143,36 @@ while True:
         conf = boss.get('confidence', 0)
 
         if boss.get('vote') == "BUY" and conf >= MIN_CONFIDENCE and votes >= 2:
-            logging.info(f"🚀 DEMO SIGNAL → {pick} LONG | BOSS {conf}% | Votes: {votes}/4")
+            price = df['close'].iloc[-1]
+            LEV = get_leverage(pick)
+            trade_size = round(min(BASE_TRADE_SIZE * (conf / 100), CAPITAL * 0.25), 2)
+            amt = round((trade_size * LEV * 0.999) / price, 4)
+            amt_half = round(amt / 2, 4)
+
+            exchange.set_margin_mode('isolated', pick)
+            exchange.set_leverage(LEV, pick)
+            exchange.create_market_buy_order(pick, amt)
+
+            sl = round(price * (1 - SL_PCT), 2)
+            tp1 = round(price * (1 + TP1_PCT), 2)
+            tp2 = round(price * (1 + TP2_PCT), 2)
+            hard_stop = round(price * (1 - HARD_STOP_PCT), 2)
+
+            exchange.create_order(pick, 'STOP_MARKET', 'sell', amt, None, {'stopPrice': sl, 'closeOnTrigger': True, 'reduceOnly': True})
+            exchange.create_order(pick, 'TAKE_PROFIT_MARKET', 'sell', amt_half, None, {'stopPrice': tp1, 'closeOnTrigger': True, 'reduceOnly': True})
+            exchange.create_order(pick, 'TAKE_PROFIT_MARKET', 'sell', amt_half, None, {'stopPrice': tp2, 'closeOnTrigger': True, 'reduceOnly': True})
+            exchange.create_order(pick, 'STOP_MARKET', 'sell', amt, None, {'stopPrice': hard_stop, 'closeOnTrigger': True, 'reduceOnly': True})
+
+            active_trades[pick] = {'entry_price': price}
+            msg = f"🚀 DEMO ENTRY → {pick} LONG x{LEV} | BOSS {conf}% | Votes: {votes}/4"
+            logging.info(msg)
+            tg(msg, chart_path)
         else:
+            # ========= FIX 2: PARA MAY GALAW =========
             logging.info(f"NO TRADE | {pick} | Conf: {conf}% | Votes: {votes}/4")
 
         time.sleep(30)
     except Exception as e:
         logging.error(f"Main error: {e}")
         time.sleep(60)
+EOF
