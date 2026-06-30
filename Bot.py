@@ -1,13 +1,12 @@
-cd ~/Trading-bots
-
-rm Bot.py
-
-cat > Bot.py << 'EOF'
 import ccxt, time, requests, json, os, pandas as pd, mplfinance as mpf, logging
-from datetime import datetime, date
+from datetime import date
 from dotenv import load_dotenv
 load_dotenv()
-IS_LIVE = False
+
+# ====================== V10.0.1 FINAL - 24/7 AI BOSS - DEMO ======================
+IS_LIVE = False # FALSE = DEMO. TRUE = REAL MONEY. 
+
+# ====================== KEYS ======================
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 GROQ_KEY_1 = os.getenv('GROQ_KEY_1')
@@ -16,37 +15,108 @@ DEEPSEEK_KEY = os.getenv('DEEPSEEK_KEY')
 GEMINI_KEY = os.getenv('GEMINI_KEY')
 BINANCE_API = os.getenv('BINANCE_API')
 BINANCE_SECRET = os.getenv('BINANCE_SECRET')
+
 CAPITAL = 1000.0
 BASE_TRADE_SIZE = 200
-SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'TON/USDT', 'ADA/USDT']
-SL_PCT = 0.05
-TP1_PCT = 0.10
-TP2_PCT = 0.15
-HARD_STOP_PCT = 0.07
+SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT']
 MIN_CONFIDENCE = 78
-MAX_OPEN = 4
-MAX_DAILY_LOSS_PCT = 0.10
-MODELS = {"BOSS":["groq","qwen2.5-72b",GROQ_KEY_1],"SCANNER":["groq","llama-3.1-8b-instant",GROQ_KEY_2],"HUNTER":["deepseek","deepseek-chat",DEEPSEEK_KEY],"ELDER":["gemini","gemini-1.5-flash-latest",GEMINI_KEY]}
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s', handlers=[logging.FileHandler("bot_v9.9.9.log"), logging.StreamHandler()])
-exchange = ccxt.binancedm({'apiKey': BINANCE_API,'secret': BINANCE_SECRET,'options': {'defaultType': 'future'},'enableRateLimit': True})
-active_trades = {}
-def tg(msg: str): 
-    try: requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={'chat_id': TELEGRAM_CHAT_ID, 'text': msg})
-    except Exception as e: logging.error(f"TG Error: {e}")
-def save_chart(df, symbol): return 'chart.png'
-def safe_json_parse(text): 
-    text = text.strip().strip('```json').strip('```').strip(); 
+
+MODELS = {
+    "BOSS":   ["groq", "qwen2.5-72b", GROQ_KEY_1],
+    "SCANNER":["groq", "llama-3.1-8b-instant", GROQ_KEY_2],
+    "HUNTER": ["deepseek", "deepseek-chat", DEEPSEEK_KEY],
+    "ELDER":  ["gemini", "gemini-1.5-flash-latest", GEMINI_KEY]
+}
+
+PROMPTS = {
+    "BOSS": """You are an elite 24/7 crypto trader. Analyze {symbol} 30m chart. 
+    Price > EMA200 and EMA50 > EMA200 = BUY. Return ONLY JSON: {{"vote":"BUY","confidence":85}}""",
+    "SCANNER": "Pick 1 best long: {symbols}. Return ONLY: {{\"pick\":\"BTC/USDT\"}}",
+    "HUNTER": "Valid long on {symbol}? Return ONLY: {{\"valid\":true}}",
+    "ELDER": "Safe to LONG {symbol}? Return ONLY: {{\"approve\":true}}"
+}
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(message)s', handlers=[logging.StreamHandler()])
+
+# DEMO TRADING NA TO BOSS. Walang real money.
+exchange = ccxt.binancedm({
+    'apiKey': BINANCE_API,
+    'secret': BINANCE_SECRET,
+    'options': {'defaultType': 'future'},
+    'enableRateLimit': True
+})
+
+def save_chart(df, symbol):
+    df = df.copy()
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+    df.set_index('timestamp', inplace=True)
+    df = df[['open','high','low','close','volume']]
+    df.columns = ['Open','High','Low','Close','Volume']
+    apds = [mpf.make_addplot(df['Close'].ewm(span=50).mean(), color='blue'),
+            mpf.make_addplot(df['Close'].ewm(span=200).mean(), color='orange')]
+    mpf.plot(df[-100:], type='candle', style='yahoo', addplot=apds, title=f'{symbol} 30m', savefig='chart.png', volume=True)
+    return 'chart.png'
+
+def safe_json_parse(text):
+    text = text.strip().strip('```json').strip('```').strip()
     try: return json.loads(text)
     except: return {}
-def ask_ai_vision(bot_name, prompt, image_path=None): return {"vote":"BUY","confidence":85} # Simplified muna for test
-print(f"🤖 V9.9.9 FINAL | DEMO MODE | Live: {IS_LIVE}")
+
+def ask_ai(bot_name, prompt, image_path=None):
+    provider, model, key = MODELS[bot_name]
+    if not key: return {}
+    try:
+        if provider == "groq":
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            content = [{"type": "text", "text": prompt}]
+            if image_path:
+                import base64
+                with open(image_path, "rb") as f: b64 = base64.b64encode(f.read()).decode()
+                content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+            body = {"model": model, "messages": [{"role":"user","content": content}], "response_format": {"type": "json_object"}}
+            r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=body, timeout=40)
+        elif provider == "deepseek":
+            r = requests.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": model, "messages": [{"role":"user","content":prompt}], "response_format": {"type": "json_object"}}, timeout=40)
+        elif provider == "gemini":
+            r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}", json={"contents":[{"parts":[{"text": prompt}]}],"generationConfig": {"response_mime_type": "application/json"}}, timeout=40)
+        r.raise_for_status()
+        text = r.json()['candidates'][0]['content']['parts'][0]['text'] if provider == "gemini" else r.json()['choices'][0]['message']['content']
+        return safe_json_parse(text)
+    except Exception as e:
+        logging.error(f"{bot_name} failed: {e}")
+        return {}
+
+logging.info(f"🤖 V10.0.1 FINAL | AI BOSS TEAM | DEMO MODE | Live: {IS_LIVE}")
+
 while True:
     try:
         balance = exchange.fetch_balance()['USDT']['free']
-        if balance < BASE_TRADE_SIZE: time.sleep(40); continue
-        print(f"DEMO OK | Balance: {balance}")
+        if balance < BASE_TRADE_SIZE:
+            time.sleep(40)
+            continue
+
+        pick = ask_ai("SCANNER", PROMPTS["SCANNER"].format(symbols=SYMBOLS)).get('pick')
+        if not pick:
+            time.sleep(45)
+            continue
+
+        ohlcv = exchange.fetch_ohlcv(pick, '30m', limit=150)
+        df = pd.DataFrame(ohlcv, columns=['timestamp','open','high','low','close','volume'])
+        chart_path = save_chart(df, pick)
+
+        boss = ask_ai("BOSS", PROMPTS["BOSS"].format(symbol=pick), chart_path)
+        hunter = ask_ai("HUNTER", PROMPTS["HUNTER"].format(symbol=pick))
+        elder = ask_ai("ELDER", PROMPTS["ELDER"].format(symbol=pick))
+
+        votes = sum(1 for v in [boss.get('vote'), hunter.get('valid'), elder.get('approve')] if v in [True, 'BUY'])
+        conf = boss.get('confidence', 0)
+
+        if boss.get('vote') == "BUY" and conf >= MIN_CONFIDENCE and votes >= 2:
+            logging.info(f"🚀 DEMO SIGNAL → {pick} LONG | BOSS {conf}% | Votes: {votes}/4")
+        else:
+            logging.info(f"NO TRADE | {pick} | Conf: {conf}% | Votes: {votes}/4")
+
         time.sleep(30)
     except Exception as e:
         logging.error(f"Main error: {e}")
         time.sleep(60)
-EOF
