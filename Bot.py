@@ -1,10 +1,11 @@
+cat > Bot.py << 'EOF'
 import ccxt, time, requests, json, os, pandas as pd, mplfinance as mpf, logging
 from datetime import datetime, date
 from dotenv import load_dotenv
 load_dotenv()
 
-# ====================== V9.9.8 FINAL - 24/7 QWEN2.5 BOSS ======================
-IS_LIVE =false # ← Gawin True pag live na with REAL MONEY
+# ====================== V9.9.9 FINAL - 24/7 QWEN2.5 BOSS - DEMO ======================
+IS_LIVE = False # ← FALSE = DEMO. True = REAL MONEY. Mag-ingat.
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -50,15 +51,15 @@ Return ONLY valid JSON:
 }
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s',
-                    handlers=[logging.FileHandler("bot_v9.9.8_final.log"), logging.StreamHandler()])
+                    handlers=[logging.FileHandler("bot_v9.9.9.log"), logging.StreamHandler()])
 
-exchange = ccxt.binanceusdm({
+exchange = ccxt.binancedm({ # DEMO TRADING NA TO BOSS
     'apiKey': BINANCE_API,
     'secret': BINANCE_SECRET,
     'options': {'defaultType': 'future'},
     'enableRateLimit': True
 })
-exchange.set_sandbox_mode(not IS_LIVE) # False = Live, True = Testnet
+# Tinanggal na set_sandbox_mode kasi deprecated na
 
 # ====================== STATE ======================
 daily_stats = {'wins': 0, 'losses': 0, 'pnl': 0.0, 'trades': 0}
@@ -141,7 +142,7 @@ def ask_ai_vision(bot_name, prompt, image_path=None):
         logging.error(f"{bot_name} failed: {e}")
         return {}
 
-print(f"🤖 V9.9.8 FINAL | 24/7 Qwen2.5-72B BOSS | Live: {IS_LIVE}")
+print(f"🤖 V9.9.9 FINAL | 24/7 Qwen2.5-72B BOSS | Live: {IS_LIVE} | DEMO MODE")
 
 while True:
     try:
@@ -194,7 +195,7 @@ while True:
             hard_order = exchange.create_order(pick, 'STOP_MARKET', 'sell', amt, None, {'stopPrice': hard_stop, 'closeOnTrigger': True, 'reduceOnly': True})
 
             active_trades[pick] = {'entry_price': price, 'amt': amt, 'amt_half': amt_half, 'sl_order_id': sl_order['id'], 'tp1_hit': False}
-            tg(f"🚀 24/7 ENTRY → {pick} LONG x{LEV} | BOSS {conf}% | Votes: {votes}/4")
+            tg(f"🚀 DEMO ENTRY → {pick} LONG x{LEV} | BOSS {conf}% | Votes: {votes}/4")
 
         time.sleep(30)
     except Exception as e:
