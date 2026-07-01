@@ -1,11 +1,10 @@
-cat > Bot.py << 'EOF'
 import ccxt, time, requests, json, os, pandas as pd, mplfinance as mpf, logging
 from datetime import datetime, date
 from dotenv import load_dotenv
 load_dotenv()
 
-# ====================== V9.9.8 FINAL - BINANCE DEMO ======================
-IS_LIVE = False  # ← FALSE = DEMO. TRUE = REAL MONEY. DANGER!
+# ====================== V9.9.9 LIVE - BINANCE REAL ======================
+IS_LIVE = True  # ← TRUE = REAL MONEY. DANGER! DOBLE CHECK MO .ENV MO!
 
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -16,11 +15,11 @@ GEMINI_KEY = os.getenv('GEMINI_KEY')
 BINANCE_API = os.getenv('BINANCE_API')
 BINANCE_SECRET = os.getenv('BINANCE_SECRET')
 
-CAPITAL = 1000.0
-BASE_TRADE_SIZE = 200
+CAPITAL = 50.0 # ← $50 lang muna boss pang test. Wag $1000 agad
+BASE_TRADE_SIZE = 10 # ← $20 lang per trade
 SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'TON/USDT', 'ADA/USDT']
-MIN_CONFIDENCE = 78
-MAX_OPEN = 4
+MIN_CONFIDENCE = 85 # ← Taasan natin para mas safe
+MAX_OPEN = 2 # ← 2 lang muna open trades para di magkalat
 SL_PCT = 0.05
 TP1_PCT = 0.10
 TP2_PCT = 0.15
@@ -42,16 +41,16 @@ Rules: Price > EMA200, EMA50 > EMA200. Return ONLY JSON: {{"vote":"BUY","confide
 }
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(message)s',
-                    handlers=[logging.FileHandler("bot_v9.9.8_final.log"), logging.StreamHandler()])
+                    handlers=[logging.FileHandler("bot_v9.9.9_live.log"), logging.StreamHandler()])
 
-# ========= FIX 1: DEMO MODE FOR FUTURES =========
+# ========= LIVE MODE FOR FUTURES =========
 exchange = ccxt.binanceusdm({
     'apiKey': BINANCE_API,
     'secret': BINANCE_SECRET,
     'options': {'defaultType': 'future'},
     'enableRateLimit': True
 })
-exchange.enable_demo_trading(not IS_LIVE) # <--- ITO DAPAT SA FUTURES BOSS
+exchange.enable_demo_trading(False) # <--- FALSE = LIVE NA TO
 
 active_trades = {}
 
@@ -69,7 +68,7 @@ def tg(msg: str, photo=None):
         logging.error(f"TG Error: {e}")
 
 def get_leverage(symbol):
-    return 15 if "BTC" in symbol else 10
+    return 10 if "BTC" in symbol else 8 # ← Binaba ko leverage boss para mas safe
 
 def save_chart(df, symbol):
     df = df.copy()
@@ -114,7 +113,7 @@ def ask_ai(bot_name, prompt, image_path=None):
         logging.error(f"{bot_name} failed: {e}")
         return {}
 
-logging.info(f"🤖 V9.9.8 FINAL | AI BOSS TEAM | DEMO TRADING MODE | Live: {IS_LIVE}")
+logging.info(f"🤖 V9.9.9 LIVE | AI BOSS TEAM | REAL TRADING MODE | Live: {IS_LIVE}")
 
 while True:
     try:
@@ -145,7 +144,7 @@ while True:
         if boss.get('vote') == "BUY" and conf >= MIN_CONFIDENCE and votes >= 2:
             price = df['close'].iloc[-1]
             LEV = get_leverage(pick)
-            trade_size = round(min(BASE_TRADE_SIZE * (conf / 100), CAPITAL * 0.25), 2)
+            trade_size = round(min(BASE_TRADE_SIZE * (conf / 100), CAPITAL * 0.20), 2) # ← 20% max ng capital
             amt = round((trade_size * LEV * 0.999) / price, 4)
             amt_half = round(amt / 2, 4)
 
@@ -164,15 +163,13 @@ while True:
             exchange.create_order(pick, 'STOP_MARKET', 'sell', amt, None, {'stopPrice': hard_stop, 'closeOnTrigger': True, 'reduceOnly': True})
 
             active_trades[pick] = {'entry_price': price}
-            msg = f"🚀 DEMO ENTRY → {pick} LONG x{LEV} | BOSS {conf}% | Votes: {votes}/4"
+            msg = f"🚀 LIVE ENTRY → {pick} LONG x{LEV} | BOSS {conf}% | Votes: {votes}/4"
             logging.info(msg)
             tg(msg, chart_path)
         else:
-            # ========= FIX 2: PARA MAY GALAW =========
             logging.info(f"NO TRADE | {pick} | Conf: {conf}% | Votes: {votes}/4")
 
         time.sleep(30)
     except Exception as e:
         logging.error(f"Main error: {e}")
         time.sleep(60)
-EOF
