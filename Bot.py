@@ -43,7 +43,7 @@ DEFAULT_LEVERAGE = 10
 
 # TINIPID: 3 AI LANG. GROQ = SCANNER + BOSS
 MODELS = {
-    "BOSS": ["groq", "qwen2.5-72b", GROQ_API_KEY_1], # SCANNER + BOSS
+    "BOSS": ["gemini", "gemini-1.5-flash-latest", GEMINI_API_KEY],
     "HUNTER": ["gemini", "gemini-1.5-flash-latest", GEMINI_API_KEY],
     "ELDER": ["openrouter", "meta-llama/llama-3.1-8b-instruct:free", OPENROUTER_API_KEY] # FREE
 }
