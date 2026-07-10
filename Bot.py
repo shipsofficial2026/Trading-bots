@@ -1,4 +1,4 @@
-kimport ccxt
+import ccxt
 import time
 import requests
 import json
