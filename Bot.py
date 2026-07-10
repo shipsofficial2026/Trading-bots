@@ -1,34 +1,43 @@
-import ccxt, time, requests, json, os, pandas as pd, mplfinance as mpf, logging, ta
+import ccxt
+import time
+import requests
+import json
+import os
+import pandas as pd
+import mplfinance as mpf
+import logging
+import ta
+import re
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ====================== V11.2-FREE - NO DEEPSEEK ======================
-IS_LIVE = True # TRUE = LIVE, FALSE = PAPER
+# ====================== V11.2-FREE - GROQ RESTORED ======================
+IS_LIVE = True  # TRUE = LIVE, FALSE = PAPER
 
 # ====================== CONFIG ======================
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-GROQ_API_KEY_1 = os.getenv('GROQ_API_KEY_1')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')           # Clean Groq
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 BINANCE_API = os.getenv('BINANCE_API')
 BINANCE_SECRET = os.getenv('BINANCE_SECRET')
 
-# Trading Parameters - $150 ACCOUNT
+# Trading Parameters
 CAPITAL = 150.0
 BASE_TRADE_SIZE = 50.0
 SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'DOGE/USDT', 'TON/USDT', 'ADA/USDT']
 MIN_CONFIDENCE = 70
 MAX_OPEN = 3
 
-SL_PCT = 0.04 # 4% Stop Loss
-TP1_PCT = 0.09 # 9% TP1 (50%)
-TP2_PCT = 0.15 # 15% TP2 (30%)
-TP3_PCT = 0.22 # 22% TP3 (15%)
-TRAIL_ACTIVATE = 0.10 # Activate trailing at +10%
-TRAIL_CALLBACK = 0.04 # 4% trailing
+SL_PCT = 0.04
+TP1_PCT = 0.09
+TP2_PCT = 0.15
+TP3_PCT = 0.22
+TRAIL_ACTIVATE = 0.10
+TRAIL_CALLBACK = 0.04
 
 SLEEP_SEC = 180
 MAX_DAILY_LOSS_PCT = 0.10
@@ -41,11 +50,11 @@ LEVERAGE_MAP = {
 }
 DEFAULT_LEVERAGE = 10
 
-# TINIPID: 3 AI LANG. GROQ = SCANNER + BOSS
+# AI Models
 MODELS = {
-    "BOSS": ["gemini", "gemini-1.5-flash-latest", GEMINI_API_KEY],
+    "BOSS": ["groq", "llama-3.1-70b-versatile", GROQ_API_KEY],
     "HUNTER": ["gemini", "gemini-1.5-flash-latest", GEMINI_API_KEY],
-    "ELDER": ["openrouter", "meta-llama/llama-3.1-8b-instruct:free", OPENROUTER_API_KEY] # FREE
+    "ELDER": ["openrouter", "meta-llama/llama-3.1-8b-instruct:free", OPENROUTER_API_KEY]
 }
 
 # ====================== SETUP ======================
@@ -110,11 +119,8 @@ def tg(msg: str, photo=None):
 
 def safe_json_parse(text: str):
     try:
-        start = text.find('{')
-        end = text.rfind('}') + 1
-        if start!= -1 and end > start:
-            return json.loads(text[start:end])
-        return {}
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        return json.loads(match.group(0)) if match else {}
     except:
         return {}
 
@@ -128,19 +134,13 @@ def ask_ai(role, prompt):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
             payload = {"contents": [{"parts": [{"text": prompt}]}]}
             r = requests.post(url, json=payload, timeout=30)
+            text = r.json()['candidates'][0]['content']['parts'][0]['text']
         else:
-            url_dict = {
-                "groq": "https://api.groq.com/openai/v1/chat/completions",
-                "openrouter": "https://openrouter.ai/api/v1/chat/completions"
-            }
-            url = url_dict[name]
+            url = "https://api.groq.com/openai/v1/chat/completions" if name == "groq" else "https://openrouter.ai/api/v1/chat/completions"
             headers = {"Authorization": f"Bearer {key}"}
-            payload = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 250}
+            payload = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 300}
             r = requests.post(url, headers=headers, json=payload, timeout=30)
-
-        r.raise_for_status()
-        data = r.json()
-        text = data['candidates'][0]['content']['parts'][0]['text'] if name == "gemini" else data['choices'][0]['message']['content']
+            text = r.json()['choices'][0]['message']['content']
         return safe_json_parse(text)
     except Exception as e:
         logging.error(f"{role} AI Error: {e}")
@@ -186,7 +186,6 @@ def set_leverage(symbol):
         logging.error(f"Leverage error {symbol}: {e}")
         return DEFAULT_LEVERAGE
 
-# ====================== MAIN FUNCTIONS ======================
 def ensure_sl_tp_exist():
     positions = get_open_positions()
     for pos in positions:
@@ -216,7 +215,6 @@ def manage_positions():
         contracts = float(pos['contracts'])
         pnl_pct = (current - entry) / entry
 
-        # 1. Move SL to BE+0.2% after +3.5% profit
         if not state.get('be_moved') and pnl_pct >= 0.035:
             try:
                 orders = exchange.fetch_open_orders(symbol)
@@ -232,7 +230,6 @@ def manage_positions():
             except Exception as e:
                 logging.error(f"BE move error: {e}")
 
-        # 2. Activate Trailing Stop
         if not state.get('trail_active') and pnl_pct >= TRAIL_ACTIVATE:
             try:
                 orders = exchange.fetch_open_orders(symbol)
@@ -291,7 +288,6 @@ def execute_trade(pick, last, boss_conf):
         tp2_price = exchange.price_to_precision(pick, entry_price * (1 + TP2_PCT))
         tp3_price = exchange.price_to_precision(pick, entry_price * (1 + TP3_PCT))
 
-        # 50% + 30% + 15% = 95%
         tp1_qty = exchange.amount_to_precision(pick, qty * 0.50)
         tp2_qty = exchange.amount_to_precision(pick, qty * 0.30)
         tp3_qty = exchange.amount_to_precision(pick, qty * 0.15)
@@ -339,8 +335,8 @@ def execute_trade(pick, last, boss_conf):
 # ====================== START BOT ======================
 load_state()
 mode = "LIVE MONEY" if IS_LIVE else "PAPER TRADE"
-logging.info(f"🤖 V11.2-FREE | MODE: {mode} | 4% SL | 9-15-22% TP | ISOLATED | 3 AI ONLY")
-tg(f"🤖 <b>V11.2-FREE BULLETPROOF</b>\nMode: {mode}\nSL: 4% | TP: 9%/15%/22%\nAI: Groq+Gemini+Openrouter\n<b>TIPID PERO MALUPIT! 🔥</b>")
+logging.info(f"🤖 V11.2-FREE | MODE: {mode} | Groq Restored")
+tg(f"🤖 <b>V11.2-FREE GROQ RESTORED</b>\nMode: {mode}\nReady na ulit! 🔥")
 
 while True:
     try:
@@ -368,7 +364,7 @@ while True:
             time.sleep(SLEEP_SEC)
             continue
 
-        # SCANNER - GROQ NA GAGAWA
+        # SCANNER
         scan_prompt = f"Pick 1 strongest 30m uptrend coin from: {SYMBOLS}. Avoid: {list(current_symbols)}. Prefer BTC/ETH/BNB. Must be above EMA200. Return ONLY JSON: {{\"pick\":\"BTC/USDT\",\"reason\":\"strong trend\"}}"
         scan = ask_ai("BOSS", scan_prompt)
         pick = scan.get('pick')
@@ -384,7 +380,7 @@ while True:
             continue
 
         atr_pct = (last['atr'] / last['close']) * 100
-        if atr_pct > MAX_ATR_PCT or atr_pct > 2.5: # 2.5% for 4% SL
+        if atr_pct > MAX_ATR_PCT or atr_pct > 2.5:
             logging.info(f"SKIP {pick} | ATR {atr_pct:.1f}% too high")
             time.sleep(SLEEP_SEC)
             continue
@@ -397,21 +393,21 @@ while True:
         # BOSS VOTE
         trend_ok = last['close'] > last['ema200'] and last['ema50'] > last['ema200']
         lev = LEVERAGE_MAP.get(pick, DEFAULT_LEVERAGE)
-        boss_prompt = f"Analyze {pick} 30m LONG. Price:{last['close']:.4f}, EMA50:{last['ema50']:.4f}, EMA200:{last['ema200']:.4f}, RSI:{last['rsi']:.1f}, ATR:{atr_pct:.1f}%. Trend OK: {trend_ok}. 20x leverage with 4% SL. Return ONLY JSON: {{\"vote\":\"BUY\",\"confidence\":85,\"reason\":\"...\"}}"
+        boss_prompt = f"Analyze {pick} 30m LONG. Price:{last['close']:.4f}, EMA50:{last['ema50']:.4f}, EMA200:{last['ema200']:.4f}, RSI:{last['rsi']:.1f}, ATR:{atr_pct:.1f}%. Trend OK: {trend_ok}. Return ONLY JSON: {{\"vote\":\"BUY\",\"confidence\":85,\"reason\":\"...\"}}"
         boss = ask_ai("BOSS", boss_prompt)
-        if boss.get('vote')!= 'BUY' or boss.get('confidence', 0) < MIN_CONFIDENCE:
+        if boss.get('vote') != 'BUY' or boss.get('confidence', 0) < MIN_CONFIDENCE:
             time.sleep(SLEEP_SEC)
             continue
 
         # HUNTER + ELDER
-        hunter = ask_ai("HUNTER", f"Good aggressive LONG entry for {pick}? RSI:{last['rsi']:.1f}, ATR:{atr_pct:.1f}%, Trend up. 20x 4% SL safe? Return ONLY JSON: {{\"valid\":true}}")
-        elder = ask_ai("ELDER", f"Safe to risk ${BASE_TRADE_SIZE} on {pick} with ${balance:.2f}? 20x isolated, 4% SL. Return ONLY JSON: {{\"approve\":true}}")
+        hunter = ask_ai("HUNTER", f"Good aggressive LONG entry for {pick}? RSI:{last['rsi']:.1f}, ATR:{atr_pct:.1f}%, Trend up. Return ONLY JSON: {{\"valid\":true}}")
+        elder = ask_ai("ELDER", f"Safe to risk ${BASE_TRADE_SIZE} on {pick} with ${balance:.2f}? Return ONLY JSON: {{\"approve\":true}}")
 
         if not hunter.get('valid', True) or not elder.get('approve', True):
             time.sleep(SLEEP_SEC)
             continue
 
-        logging.info(f"✅ 4/4 APPROVED → {pick} | {lev}x | Conf:{boss.get('confidence')}%")
+        logging.info(f"✅ APPROVED → {pick} | {lev}x | Conf:{boss.get('confidence')}%")
         execute_trade(pick, last, boss.get('confidence', 75))
 
         time.sleep(max(0, SLEEP_SEC - (time.time() - start_time)))
