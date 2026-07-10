@@ -19,7 +19,7 @@ IS_LIVE = True  # TRUE = LIVE, FALSE = PAPER
 # ====================== CONFIG ======================
 TELEGRAM_TOKEN=os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID=os.getenv('TELEGRAM_CHAT_ID')
-GROQ_API_KEY l=os.getenv('GROQ_API_KEY')           # Clean Groq
+GROQ_API_KEY=os.getenv('GROQ_API_KEY')           # Clean Groq
 GEMINI_API_KEY=os.getenv('GEMINI_API_KEY')
 OPENROUTER_API_KEY=os.getenv('OPENROUTER_API_KEY')
 BINANCE_API=os.getenv('BINANCE_API')
